@@ -14,7 +14,9 @@ class EAFramework(ABC):
     
     def __init__(self, population_size=100, generations=500, 
                  crossover_rate=0.8, mutation_rate=0.1,
-                 elitism_count=2, tournament_size=3):
+                 elitism_count=2, tournament_size=3,
+                 survivor_selection='generational', offspring_size=None,
+                 parent_selection='tournament'):
         """
         Initialize EA parameters
         
@@ -25,6 +27,16 @@ class EAFramework(ABC):
             mutation_rate: Probability of mutation
             elitism_count: Number of best individuals to preserve
             tournament_size: Size of tournament for selection
+            survivor_selection: Strategy for survivor selection
+                - 'generational': Replace entire population (with elitism)
+                - 'mu_plus_lambda': Best from parents + offspring
+                - 'mu_comma_lambda': Best from offspring only
+                - 'tournament': Tournament between parents and offspring
+            offspring_size: Number of offspring to generate (default: population_size)
+            parent_selection: Strategy for parent selection
+                - 'tournament': Tournament selection
+                - 'fitness_proportional': Roulette wheel selection (Holland)
+                - 'rank': Rank-based selection
         """
         self.population_size = population_size
         self.generations = generations
@@ -32,6 +44,9 @@ class EAFramework(ABC):
         self.mutation_rate = mutation_rate
         self.elitism_count = elitism_count
         self.tournament_size = tournament_size
+        self.survivor_selection = survivor_selection
+        self.offspring_size = offspring_size or population_size
+        self.parent_selection = parent_selection
         
         # Statistics tracking
         self.best_fitness_history = []
@@ -79,9 +94,263 @@ class EAFramework(ABC):
         winner_idx = tournament_indices[np.argmin(tournament_fitnesses)]
         return population[winner_idx]
     
+    def fitness_proportional_selection(self, population: List[Any],
+                                      fitnesses: List[float]) -> Any:
+        """
+        Fitness Proportional Selection (Roulette Wheel Selection)
+        
+        Proposed by Holland, this method biases selection towards the most fit
+        individuals by creating a probability distribution proportional to fitness.
+        
+        Characteristics:
+        - High selective pressure when fitness variance is high
+        - Risk of premature convergence (strong individuals dominate)
+        - Low selective pressure when fitnesses are similar (late in run)
+        - Selection probability ∝ fitness
+        
+        For MINIMIZATION problems, we need to invert the fitness values.
+        
+        Args:
+            population: Current population
+            fitnesses: Fitness values for population
+            
+        Returns:
+            Selected individual
+        """
+        # Convert to numpy array for easier manipulation
+        fitnesses_array = np.array(fitnesses)
+        
+        # For minimization: invert fitness values
+        # We want lower fitness to have higher selection probability
+        # Method: Use (max_fitness - fitness + epsilon) to avoid division by zero
+        max_fitness = np.max(fitnesses_array)
+        epsilon = 1e-10  # Small value to avoid zero probabilities
+        
+        # Inverted fitness: better solutions (lower fitness) get higher values
+        inverted_fitness = max_fitness - fitnesses_array + epsilon
+        
+        # Handle case where all fitnesses are the same
+        if np.all(inverted_fitness == inverted_fitness[0]):
+            # Uniform selection if all fitnesses equal
+            selected_idx = np.random.randint(0, len(population))
+            return population[selected_idx]
+        
+        # Calculate selection probabilities (proportional to inverted fitness)
+        total_inverted_fitness = np.sum(inverted_fitness)
+        probabilities = inverted_fitness / total_inverted_fitness
+        
+        # Sample from the distribution (roulette wheel spin)
+        selected_idx = np.random.choice(len(population), p=probabilities)
+        
+        return population[selected_idx]
+    
+    def rank_selection(self, population: List[Any],
+                      fitnesses: List[float]) -> Any:
+        """
+        Rank-based Selection
+        
+        Selection probability is based on rank rather than raw fitness values.
+        This addresses some issues with fitness proportional selection:
+        - More consistent selection pressure throughout the run
+        - Prevents premature convergence when fitness variance is high
+        - Maintains selection pressure when fitnesses are similar
+        
+        Args:
+            population: Current population
+            fitnesses: Fitness values for population
+            
+        Returns:
+            Selected individual
+        """
+        # Sort indices by fitness (best to worst for minimization)
+        sorted_indices = np.argsort(fitnesses)
+        
+        # Assign ranks: best individual gets highest rank
+        n = len(population)
+        ranks = np.zeros(n)
+        for rank, idx in enumerate(sorted_indices):
+            ranks[idx] = n - rank  # Best gets rank n, worst gets rank 1
+        
+        # Calculate selection probabilities based on rank
+        total_rank = np.sum(ranks)
+        probabilities = ranks / total_rank
+        
+        # Select based on rank probabilities
+        selected_idx = np.random.choice(len(population), p=probabilities)
+        
+        return population[selected_idx]
+    
+    def select_parent(self, population: List[Any], fitnesses: List[float]) -> Any:
+        """
+        Select a parent using the configured parent selection method
+        
+        Args:
+            population: Current population
+            fitnesses: Fitness values for population
+            
+        Returns:
+            Selected parent
+        """
+        if self.parent_selection == 'tournament':
+            return self.tournament_selection(population, fitnesses)
+        elif self.parent_selection == 'fitness_proportional':
+            return self.fitness_proportional_selection(population, fitnesses)
+        elif self.parent_selection == 'rank':
+            return self.rank_selection(population, fitnesses)
+        else:
+            raise ValueError(f"Unknown parent selection method: {self.parent_selection}")
+    
+    def survivor_selection_generational(self, population, offspring, 
+                                       parent_fitnesses, offspring_fitnesses):
+        """
+        Generational replacement with elitism
+        
+        Args:
+            population: Parent population
+            offspring: Offspring population
+            parent_fitnesses: Fitness values of parents
+            offspring_fitnesses: Fitness values of offspring
+            
+        Returns:
+            New population
+        """
+        # Combine elite parents with offspring
+        new_population = []
+        
+        if self.elitism_count > 0:
+            # Get elite individuals from parents
+            elite_indices = np.argsort(parent_fitnesses)[:self.elitism_count]
+            for idx in elite_indices:
+                new_population.append(population[idx].copy())
+        
+        # Fill rest with best offspring
+        remaining_size = self.population_size - len(new_population)
+        if remaining_size > 0:
+            best_offspring_indices = np.argsort(offspring_fitnesses)[:remaining_size]
+            for idx in best_offspring_indices:
+                new_population.append(offspring[idx])
+        
+        return new_population
+    
+    def survivor_selection_mu_plus_lambda(self, population, offspring,
+                                         parent_fitnesses, offspring_fitnesses):
+        """
+        (μ+λ) selection: Best from parents AND offspring
+        
+        Args:
+            population: Parent population (μ)
+            offspring: Offspring population (λ)
+            parent_fitnesses: Fitness values of parents
+            offspring_fitnesses: Fitness values of offspring
+            
+        Returns:
+            New population of size μ
+        """
+        # Combine parents and offspring
+        combined = population + offspring
+        combined_fitnesses = list(parent_fitnesses) + list(offspring_fitnesses)
+        
+        # Select best μ individuals
+        best_indices = np.argsort(combined_fitnesses)[:self.population_size]
+        new_population = [combined[i] for i in best_indices]
+        
+        return new_population
+    
+    def survivor_selection_mu_comma_lambda(self, population, offspring,
+                                          parent_fitnesses, offspring_fitnesses):
+        """
+        (μ,λ) selection: Best from offspring ONLY
+        Note: Requires λ ≥ μ (offspring_size >= population_size)
+        
+        Args:
+            population: Parent population (μ) - not used in selection
+            offspring: Offspring population (λ)
+            parent_fitnesses: Fitness values of parents - not used
+            offspring_fitnesses: Fitness values of offspring
+            
+        Returns:
+            New population of size μ from offspring
+        """
+        if len(offspring) < self.population_size:
+            raise ValueError(f"(μ,λ) requires λ ≥ μ. Got λ={len(offspring)}, μ={self.population_size}")
+        
+        # Select best μ individuals from offspring only
+        best_indices = np.argsort(offspring_fitnesses)[:self.population_size]
+        new_population = [offspring[i] for i in best_indices]
+        
+        return new_population
+    
+    def survivor_selection_tournament(self, population, offspring,
+                                     parent_fitnesses, offspring_fitnesses):
+        """
+        Tournament-based survivor selection
+        Randomly pair parents with offspring and select better one
+        
+        Args:
+            population: Parent population
+            offspring: Offspring population
+            parent_fitnesses: Fitness values of parents
+            offspring_fitnesses: Fitness values of offspring
+            
+        Returns:
+            New population
+        """
+        new_population = []
+        
+        # Ensure we have enough individuals
+        combined = population + offspring
+        combined_fitnesses = list(parent_fitnesses) + list(offspring_fitnesses)
+        
+        # Run tournaments
+        for _ in range(self.population_size):
+            # Select two random individuals
+            idx1, idx2 = np.random.choice(len(combined), 2, replace=False)
+            
+            # Tournament: select better one
+            if combined_fitnesses[idx1] <= combined_fitnesses[idx2]:
+                new_population.append(combined[idx1].copy())
+            else:
+                new_population.append(combined[idx2].copy())
+        
+        return new_population
+    
+    def perform_survivor_selection(self, population, offspring,
+                                   parent_fitnesses, offspring_fitnesses):
+        """
+        Perform survivor selection based on configured strategy
+        
+        Args:
+            population: Parent population
+            offspring: Offspring population  
+            parent_fitnesses: Fitness values of parents
+            offspring_fitnesses: Fitness values of offspring
+            
+        Returns:
+            New population
+        """
+        if self.survivor_selection == 'generational':
+            return self.survivor_selection_generational(
+                population, offspring, parent_fitnesses, offspring_fitnesses
+            )
+        elif self.survivor_selection == 'mu_plus_lambda':
+            return self.survivor_selection_mu_plus_lambda(
+                population, offspring, parent_fitnesses, offspring_fitnesses
+            )
+        elif self.survivor_selection == 'mu_comma_lambda':
+            return self.survivor_selection_mu_comma_lambda(
+                population, offspring, parent_fitnesses, offspring_fitnesses
+            )
+        elif self.survivor_selection == 'tournament':
+            return self.survivor_selection_tournament(
+                population, offspring, parent_fitnesses, offspring_fitnesses
+            )
+        else:
+            raise ValueError(f"Unknown survivor selection: {self.survivor_selection}")
+
+    
     def evolve(self, verbose=True):
         """
-        Main evolution loop
+        Main evolution loop with proper survivor selection
         
         Args:
             verbose: Whether to print progress
@@ -93,7 +362,7 @@ class EAFramework(ABC):
         population = self.initialize_population()
         
         for generation in range(self.generations):
-            # Evaluate fitness
+            # Evaluate fitness of current population
             fitnesses = [self.calculate_fitness(ind) for ind in population]
             
             # Track statistics
@@ -102,7 +371,7 @@ class EAFramework(ABC):
             self.avg_fitness_history.append(np.mean(fitnesses))
             self.worst_fitness_history.append(np.max(fitnesses))
             
-            # Update best solution
+            # Update best solution ever found
             if fitnesses[best_idx] < self.best_fitness:
                 self.best_fitness = fitnesses[best_idx]
                 self.best_solution = population[best_idx].copy()
@@ -112,19 +381,13 @@ class EAFramework(ABC):
                       f"Avg={np.mean(fitnesses):.2f}, "
                       f"Worst={np.max(fitnesses):.2f}")
             
-            # Create new population
-            new_population = []
+            # Generate offspring through parent selection, crossover, and mutation
+            offspring = []
             
-            # Elitism - preserve best individuals
-            elite_indices = np.argsort(fitnesses)[:self.elitism_count]
-            for idx in elite_indices:
-                new_population.append(population[idx].copy())
-            
-            # Generate offspring
-            while len(new_population) < self.population_size:
-                # Selection
-                parent1 = self.tournament_selection(population, fitnesses)
-                parent2 = self.tournament_selection(population, fitnesses)
+            while len(offspring) < self.offspring_size:
+                # Parent selection using configured method
+                parent1 = self.select_parent(population, fitnesses)
+                parent2 = self.select_parent(population, fitnesses)
                 
                 # Crossover
                 if np.random.random() < self.crossover_rate:
@@ -138,11 +401,17 @@ class EAFramework(ABC):
                 if np.random.random() < self.mutation_rate:
                     offspring2 = self.mutate(offspring2)
                 
-                new_population.append(offspring1)
-                if len(new_population) < self.population_size:
-                    new_population.append(offspring2)
+                offspring.append(offspring1)
+                if len(offspring) < self.offspring_size:
+                    offspring.append(offspring2)
             
-            population = new_population
+            # Evaluate offspring fitness
+            offspring_fitnesses = [self.calculate_fitness(ind) for ind in offspring]
+            
+            # Survivor selection: combine parents and offspring
+            population = self.perform_survivor_selection(
+                population, offspring, fitnesses, offspring_fitnesses
+            )
         
         return self.best_solution
     
