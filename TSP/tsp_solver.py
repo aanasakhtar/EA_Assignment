@@ -108,7 +108,8 @@ class TSPSolver(EAFramework):
         tour = tour.copy()
         
         # Choose mutation type randomly
-        mutation_type = np.random.choice(['swap', 'inversion', 'scramble'])
+        # mutation_type = np.random.choice(['swap', 'inversion', 'scramble'])
+        mutation_type = 'inversion'  # Force inversion for better performance
         
         if mutation_type == 'swap':
             # Swap two random cities
@@ -260,12 +261,16 @@ def main():
     solver = TSPSolver(
         cities=cities,
         distance_matrix=distance_matrix,
-        population_size=200,
-        generations=1000,
+        population_size=300,
+        generations=2500,
         crossover_rate=0.85,
-        mutation_rate=0.15,
+        mutation_rate=0.25,
         elitism_count=5,
-        tournament_size=5
+        # offspring_size=250,
+        tournament_size=3, 
+        survivor_selection='mu_plus_lambda',
+        parent_selection='tournament',
+        enable_hall_of_fame=True,
     )
     
     print("\nEvolutionary Algorithm Parameters:")
@@ -274,7 +279,10 @@ def main():
     print(f"  Crossover Rate: {solver.crossover_rate}")
     print(f"  Mutation Rate: {solver.mutation_rate}")
     print(f"  Elitism Count: {solver.elitism_count}")
-    print(f"  Tournament Size: {solver.tournament_size}")
+    print(f"  Offspring Size: {solver.offspring_size}")
+    print(f"  Parent Selection: {solver.parent_selection}")
+    print(f"  Survivor Selection: {solver.survivor_selection}")
+    
     print("\nStarting evolution...\n")
     
     # Run evolution

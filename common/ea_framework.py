@@ -16,7 +16,7 @@ class EAFramework(ABC):
                  crossover_rate=0.8, mutation_rate=0.1,
                  elitism_count=2, tournament_size=3,
                  survivor_selection='generational', offspring_size=None,
-                 parent_selection='tournament'):
+                 parent_selection='tournament', enable_hall_of_fame=True):
         """
         Initialize EA parameters
         
@@ -37,6 +37,8 @@ class EAFramework(ABC):
                 - 'tournament': Tournament selection
                 - 'fitness_proportional': Roulette wheel selection (Holland)
                 - 'rank': Rank-based selection
+                - 'random': Random selection (preserves diversity, ignores fitness)
+            enable_hall_of_fame: Whether to maintain a hall of fame archive of best individuals
         """
         self.population_size = population_size
         self.generations = generations
@@ -47,6 +49,7 @@ class EAFramework(ABC):
         self.survivor_selection = survivor_selection
         self.offspring_size = offspring_size or population_size
         self.parent_selection = parent_selection
+        self.enable_hall_of_fame = enable_hall_of_fame
         
         # Statistics tracking
         self.best_fitness_history = []
@@ -54,6 +57,10 @@ class EAFramework(ABC):
         self.worst_fitness_history = []
         self.best_solution = None
         self.best_fitness = float('inf')
+        
+        # Hall of Fame: archive of best individuals found during evolution
+        self.hall_of_fame = []  # List of (individual, fitness) tuples
+        self.hall_of_fame_fitness_history = []  # Best fitness added to HoF each generation
         
     @abstractmethod
     def initialize_population(self) -> List[Any]:
@@ -180,6 +187,30 @@ class EAFramework(ABC):
         
         return population[selected_idx]
     
+    def random_selection(self, population: List[Any],
+                        fitnesses: List[float] = None) -> Any:
+        """
+        Random Selection
+        
+        Selects individuals purely by chance, completely ignoring fitness values.
+        This method:
+        - Returns elements with equal probability regardless of fitness
+        - Effectively performs a random walk through the search space
+        - Maximally preserves population diversity
+        - Useful in combination with separate environmental selection
+        - Good for selecting from an optimal set where all are equally viable
+        
+        Args:
+            population: Current population
+            fitnesses: Fitness values (ignored)
+            
+        Returns:
+            Randomly selected individual
+        """
+        # Select a random index with uniform probability
+        selected_idx = np.random.randint(0, len(population))
+        return population[selected_idx]
+    
     def select_parent(self, population: List[Any], fitnesses: List[float]) -> Any:
         """
         Select a parent using the configured parent selection method
@@ -197,6 +228,8 @@ class EAFramework(ABC):
             return self.fitness_proportional_selection(population, fitnesses)
         elif self.parent_selection == 'rank':
             return self.rank_selection(population, fitnesses)
+        elif self.parent_selection == 'random':
+            return self.random_selection(population, fitnesses)
         else:
             raise ValueError(f"Unknown parent selection method: {self.parent_selection}")
     
@@ -346,6 +379,62 @@ class EAFramework(ABC):
             )
         else:
             raise ValueError(f"Unknown survivor selection: {self.survivor_selection}")
+    
+    def update_hall_of_fame(self, individual: Any, fitness: float):
+        """
+        Update the hall of fame with a new individual.
+        Maintains an archive of the best individuals found during evolution.
+        
+        Args:
+            individual: The individual to potentially add to hall of fame
+            fitness: The fitness value of the individual
+        """
+        if not self.enable_hall_of_fame:
+            return
+        
+        # If hall of fame is empty, add the first individual
+        if len(self.hall_of_fame) == 0:
+            self.hall_of_fame.append((individual.copy(), fitness))
+            self.hall_of_fame_fitness_history.append(fitness)
+            return
+        
+        # Get the best fitness in hall of fame
+        best_hof_fitness = min([f for _, f in self.hall_of_fame])
+        
+        # If new individual is better than worst in hall of fame, add it
+        if fitness <= best_hof_fitness:
+            # Check if this fitness already exists in hall of fame
+            exists = any(f == fitness for _, f in self.hall_of_fame)
+            if not exists:
+                self.hall_of_fame.append((individual.copy(), fitness))
+        
+        # Track the best fitness added/updated in this generation
+        self.hall_of_fame_fitness_history.append(best_hof_fitness)
+    
+    def get_best_from_hall_of_fame(self) -> Tuple[Any, float]:
+        """
+        Get the best individual from the hall of fame.
+        Useful at the last generation or when using hall of fame as parent pool.
+        
+        Returns:
+            Tuple of (best_individual, best_fitness) from hall of fame
+            Returns (None, float('inf')) if hall of fame is empty
+        """
+        if not self.hall_of_fame:
+            return None, float('inf')
+        
+        # Find the best individual in hall of fame
+        best_individual, best_fitness = min(self.hall_of_fame, key=lambda x: x[1])
+        return best_individual, best_fitness
+    
+    def get_hall_of_fame_size(self) -> int:
+        """
+        Get the number of unique individuals in the hall of fame.
+        
+        Returns:
+            Size of hall of fame
+        """
+        return len(self.hall_of_fame)
 
     
     def evolve(self, verbose=True):
@@ -375,6 +464,10 @@ class EAFramework(ABC):
             if fitnesses[best_idx] < self.best_fitness:
                 self.best_fitness = fitnesses[best_idx]
                 self.best_solution = population[best_idx].copy()
+            
+            # Update hall of fame with best individual in this generation
+            if self.enable_hall_of_fame:
+                self.update_hall_of_fame(population[best_idx], fitnesses[best_idx])
             
             if verbose and (generation % 50 == 0 or generation == self.generations - 1):
                 print(f"Generation {generation}: Best={fitnesses[best_idx]:.2f}, "
@@ -412,6 +505,12 @@ class EAFramework(ABC):
             population = self.perform_survivor_selection(
                 population, offspring, fitnesses, offspring_fitnesses
             )
+        
+        # Return best solution (prefer hall of fame if enabled)
+        if self.enable_hall_of_fame and self.hall_of_fame:
+            best_hof_solution, best_hof_fitness = self.get_best_from_hall_of_fame()
+            if best_hof_fitness < self.best_fitness:
+                return best_hof_solution
         
         return self.best_solution
     
