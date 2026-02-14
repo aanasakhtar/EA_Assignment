@@ -33,10 +33,11 @@ GENETIC OPERATORS:
     - Repair: Heuristic to eliminate hard constraint violations
 
 SELECTION SCHEMES (as per assignment):
-    Three combinations tested with K=10 runs each:
-    1. Fitness Proportional Selection + Generational (with elitism)
-    2. Tournament Selection + Generational (with elitism)
-    3. Random Selection + Random Survivor Selection
+    Four combinations tested with K=10 runs each:
+    1. Fitness Proportional Selection (FPS) + Truncation
+    2. Binary Tournament Selection + Truncation
+    3. Truncation + Truncation
+    4. Random + Random
 
 FIXED PARAMETERS (as per assignment):
     - Population size (μ): 30
@@ -486,7 +487,9 @@ def parse_purdue_data(file_path):
 
 def run_k_runs(parent_scheme, survivor_scheme, exams, students, periods, k=10):
     """
-    Execute the EA K times as required by Assignment to get statistical results
+    Execute the EA K times as required by Assignment to get statistical results.
+    Collects both BSF (Best-So-Far) and ASF (Average-So-Far / Average Fitness)
+    per generation for each run.
     
     Args:
         parent_scheme: Parent selection method ('fitness_proportional', 'tournament', 'random')
@@ -497,9 +500,10 @@ def run_k_runs(parent_scheme, survivor_scheme, exams, students, periods, k=10):
         k: Number of runs (default 10 as per assignment)
         
     Returns:
-        Dictionary with results including average BSF history and statistics
+        Dictionary with BSF and ASF histories per run, plus averages
     """
-    all_runs_bsf = []
+    all_runs_bsf = []  # BSF history per run
+    all_runs_asf = []  # ASF (avg fitness) history per run
     all_final_fitness = []
     all_runtimes = []
     
@@ -522,8 +526,8 @@ def run_k_runs(parent_scheme, survivor_scheme, exams, students, periods, k=10):
             offspring_size=10,           
             generations=50,              
             mutation_rate=0.5,           
-            crossover_rate=0.8,           # Standard value
-            elitism_count=2,              # Small elitism for generational
+            crossover_rate=0.8,
+            elitism_count=2,
             tournament_size=2,           
             parent_selection=parent_scheme,
             survivor_selection=survivor_scheme
@@ -534,217 +538,352 @@ def run_k_runs(parent_scheme, survivor_scheme, exams, students, periods, k=10):
         
         runtime = time.time() - start_time
         
-        # Store results
-        all_runs_bsf.append(solver.best_fitness_history)
+        # Store BSF and ASF histories from this run
+        all_runs_bsf.append(solver.best_fitness_history)   # BSF per generation
+        all_runs_asf.append(solver.avg_fitness_history)     # ASF per generation
         all_final_fitness.append(solver.best_fitness)
         all_runtimes.append(runtime)
         
         print(f"Best Fitness = {solver.best_fitness:.2f}, Time = {runtime:.2f}s")
     
-    # Calculate statistics
+    # Calculate averages across K runs
     avg_bsf_history = np.mean(all_runs_bsf, axis=0)
     std_bsf_history = np.std(all_runs_bsf, axis=0)
+    avg_asf_history = np.mean(all_runs_asf, axis=0)
+    std_asf_history = np.std(all_runs_asf, axis=0)
     
     results = {
         'all_bsf_histories': all_runs_bsf,
+        'all_asf_histories': all_runs_asf,
         'avg_bsf_history': avg_bsf_history,
         'std_bsf_history': std_bsf_history,
+        'avg_asf_history': avg_asf_history,
+        'std_asf_history': std_asf_history,
         'all_final_fitness': all_final_fitness,
         'mean_final_fitness': np.mean(all_final_fitness),
         'std_final_fitness': np.std(all_final_fitness),
         'best_final_fitness': np.min(all_final_fitness),
         'worst_final_fitness': np.max(all_final_fitness),
         'mean_runtime': np.mean(all_runtimes),
-        'total_runtime': np.sum(all_runtimes)
+        'total_runtime': np.sum(all_runtimes),
+        'k': k
     }
     
     print(f"\n  Summary Statistics:")
-    print(f"    Mean Final Fitness: {results['mean_final_fitness']:.2f} ± {results['std_final_fitness']:.2f}")
-    print(f"    Best Final Fitness: {results['best_final_fitness']:.2f}")
-    print(f"    Worst Final Fitness: {results['worst_final_fitness']:.2f}")
+    print(f"    Mean Final BSF: {results['mean_final_fitness']:.2f} +/- {results['std_final_fitness']:.2f}")
+    print(f"    Best Final BSF: {results['best_final_fitness']:.2f}")
+    print(f"    Worst Final BSF: {results['worst_final_fitness']:.2f}")
     print(f"    Mean Runtime: {results['mean_runtime']:.2f}s")
     
     return results
 
 
-def plot_comparison(results_dict, save_path='exam_scheduling_comparison.png'):
+def print_generation_table(label, results):
     """
-    Create comprehensive comparison plots for different selection schemes
+    Print the generation-by-generation table for a single combination.
+    Columns: Generation | Run#1 BSF | Run#1 ASF | ... | Run#K BSF | Run#K ASF | Avg BSF | Avg ASF
+    
+    Args:
+        label: Name of the scheme combination
+        results: Results dict from run_k_runs
+    """
+    k = results['k']
+    n_gens = len(results['avg_bsf_history'])
+    
+    # Column widths
+    gen_w = 5
+    val_w = 10
+    
+    # Calculate total width
+    total_cols = 1 + (k * 2) + 2  # Gen + (K runs × 2) + Avg BSF + Avg ASF
+    total_w = gen_w + (total_cols - 1) * val_w + (total_cols + 1)  # +1 for each | separator
+    
+    print(f"\n┌{'─' * (total_w - 2)}┐")
+    title = f"TABLE: {label}"
+    print(f"│{title:^{total_w - 2}}│")
+    
+    # Build header row
+    print(f"├{'─' * gen_w}┬", end="")
+    for r in range(1, k + 1):
+        print(f"{'─' * val_w}┬{'─' * val_w}┬", end="")
+    print(f"{'─' * val_w}┬{'─' * val_w}┤")
+    
+    # Header labels
+    header = f"│{'Gen':^{gen_w}}│"
+    for r in range(1, k + 1):
+        header += f"{'R'+str(r)+' BSF':^{val_w}}│{'R'+str(r)+' ASF':^{val_w}}│"
+    header += f"{'Avg BSF':^{val_w}}│{'Avg ASF':^{val_w}}│"
+    print(header)
+    
+    # Separator after header
+    print(f"├{'─' * gen_w}┼", end="")
+    for r in range(1, k + 1):
+        print(f"{'─' * val_w}┼{'─' * val_w}┼", end="")
+    print(f"{'─' * val_w}┼{'─' * val_w}┤")
+    
+    # Print each generation row
+    for gen in range(n_gens):
+        row = f"│{gen:^{gen_w}}│"
+        for r in range(k):
+            bsf_val = results['all_bsf_histories'][r][gen]
+            asf_val = results['all_asf_histories'][r][gen]
+            row += f"{bsf_val:>{val_w}.1f}│{asf_val:>{val_w}.1f}│"
+        row += f"{results['avg_bsf_history'][gen]:>{val_w}.2f}│{results['avg_asf_history'][gen]:>{val_w}.2f}│"
+        print(row)
+    
+    # Bottom border
+    print(f"└{'─' * gen_w}┴", end="")
+    for r in range(1, k + 1):
+        print(f"{'─' * val_w}┴{'─' * val_w}┴", end="")
+    print(f"{'─' * val_w}┴{'─' * val_w}┘")
+
+
+def save_generation_table_csv(label, results, filename):
+    """
+    Save the generation-by-generation table as a CSV file.
+    
+    Args:
+        label: Name of the scheme combination
+        results: Results dict from run_k_runs
+        filename: Output CSV path
+    """
+    k = results['k']
+    n_gens = len(results['avg_bsf_history'])
+    
+    # Ensure absolute path in main directory
+    filepath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', filename))
+    
+    with open(filepath, 'w') as f:
+        # Header
+        cols = ['Generation']
+        for r in range(1, k + 1):
+            cols.append(f'Run{r}_BSF')
+            cols.append(f'Run{r}_ASF')
+        cols.append('Average_BSF')
+        cols.append('Average_ASF')
+        f.write(','.join(cols) + '\n')
+        
+        # Data rows
+        for gen in range(n_gens):
+            vals = [str(gen)]
+            for r in range(k):
+                vals.append(f"{results['all_bsf_histories'][r][gen]:.2f}")
+                vals.append(f"{results['all_asf_histories'][r][gen]:.2f}")
+            vals.append(f"{results['avg_bsf_history'][gen]:.2f}")
+            vals.append(f"{results['avg_asf_history'][gen]:.2f}")
+            f.write(','.join(vals) + '\n')
+    
+    print(f"  Table saved to: {filepath}")
+
+
+def save_generation_table_image(label, results, filename):
+    """
+    Save the generation-by-generation table as a figure image.
+    
+    Args:
+        label: Name of the scheme combination
+        results: Results dict from run_k_runs
+        filename: Output image path (.png)
+    """
+    k = results['k']
+    n_gens = len(results['avg_bsf_history'])
+    
+    # Build column headers
+    col_labels = ['Gen']
+    for r in range(1, k + 1):
+        col_labels.append(f'R{r} BSF')
+        col_labels.append(f'R{r} ASF')
+    col_labels.append('Avg BSF')
+    col_labels.append('Avg ASF')
+    
+    # Build table data
+    table_data = []
+    for gen in range(n_gens):
+        row = [str(gen)]
+        for r in range(k):
+            row.append(f"{results['all_bsf_histories'][r][gen]/1e6:.2f}M")
+            row.append(f"{results['all_asf_histories'][r][gen]/1e6:.2f}M")
+        row.append(f"{results['avg_bsf_history'][gen]/1e6:.2f}M")
+        row.append(f"{results['avg_asf_history'][gen]/1e6:.2f}M")
+        table_data.append(row)
+    
+    # Create figure
+    n_cols = len(col_labels)
+    fig_width = min(24, 1.2 * n_cols)  # Cap width
+    fig_height = max(8, 0.3 * n_gens)  # Scale with generations
+    
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    ax.axis('off')
+    ax.set_title(f'Generation Table: {label}\n(K={k} runs, {n_gens} generations)', 
+                 fontsize=14, fontweight='bold', pad=20)
+    
+    # Create table
+    table = ax.table(
+        cellText=table_data,
+        colLabels=col_labels,
+        loc='center',
+        cellLoc='center'
+    )
+    
+    # Style the table
+    table.auto_set_font_size(False)
+    table.set_fontsize(7)
+    table.scale(1.2, 1.5)
+    
+    # Color header row
+    for j in range(n_cols):
+        table[(0, j)].set_facecolor('#4472C4')
+        table[(0, j)].set_text_props(color='white', fontweight='bold')
+    
+    # Alternate row colors for readability
+    for i in range(1, n_gens + 1):
+        for j in range(n_cols):
+            if i % 2 == 0:
+                table[(i, j)].set_facecolor('#D6DCE5')
+            else:
+                table[(i, j)].set_facecolor('#FFFFFF')
+    
+    # Highlight Avg columns
+    for i in range(1, n_gens + 1):
+        table[(i, n_cols - 2)].set_facecolor('#E2EFDA')  # Avg BSF - light green
+        table[(i, n_cols - 1)].set_facecolor('#FCE4D6')  # Avg ASF - light orange
+    
+    plt.tight_layout()
+    
+    # Save
+    filepath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', filename))
+    plt.savefig(filepath, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"  Table image saved to: {filepath}")
+
+
+def plot_single_combination(label, results, save_path=None):
+    """
+    Plot Avg BSF and Avg ASF side by side for a single combination.
+    
+    Args:
+        label: Name of the scheme combination
+        results: Results dict from run_k_runs
+        save_path: Path to save the plot
+    """
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    
+    generations = range(len(results['avg_bsf_history']))
+    
+    # Left plot: Average BSF
+    ax1.plot(generations, results['avg_bsf_history'], 'b-', linewidth=2)
+    ax1.set_xlabel('Generation', fontsize=11)
+    ax1.set_ylabel('Average Best-So-Far (BSF)', fontsize=11)
+    ax1.set_title('Avg. BSF vs Generation', fontsize=13, fontweight='bold')
+    ax1.grid(True, alpha=0.3)
+    
+    # Right plot: Average ASF
+    ax2.plot(generations, results['avg_asf_history'], 'r-', linewidth=2)
+    ax2.set_xlabel('Generation', fontsize=11)
+    ax2.set_ylabel('Average Average-Fitness (ASF)', fontsize=11)
+    ax2.set_title('Avg. ASF vs Generation', fontsize=13, fontweight='bold')
+    ax2.grid(True, alpha=0.3)
+    
+    plt.suptitle(f'{label}\n(K={results["k"]} runs, 50 generations)',
+                 fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    if save_path:
+        # Ensure absolute path in main directory
+        filepath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', save_path))
+        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        print(f"  Plot saved to: {filepath}")
+    
+    plt.close()  # Close figure to free memory and avoid blocking
+
+
+def plot_all_combinations(results_dict, save_path='exam_scheduling_comparison.png'):
+    """
+    Plot Avg BSF and Avg ASF for ALL combinations side by side for comparison.
+    Left subplot: Avg BSF curves for all schemes overlaid
+    Right subplot: Avg ASF curves for all schemes overlaid
     
     Args:
         results_dict: Dictionary with results from different schemes
         save_path: Path to save the plot
     """
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
     
     schemes = list(results_dict.keys())
     colors = plt.cm.tab10(np.linspace(0, 1, len(schemes)))
     
-    # Plot 1: Average BSF Convergence Curves
-    ax1 = axes[0, 0]
+    # Left: Avg BSF for all combinations
     for i, (scheme, results) in enumerate(results_dict.items()):
-        avg_history = results['avg_bsf_history']
-        std_history = results['std_bsf_history']
-        generations = range(len(avg_history))
-        
-        ax1.plot(generations, avg_history, label=scheme, color=colors[i], linewidth=2)
-        ax1.fill_between(generations, 
-                         avg_history - std_history,
-                         avg_history + std_history,
-                         color=colors[i], alpha=0.2)
+        generations = range(len(results['avg_bsf_history']))
+        ax1.plot(generations, results['avg_bsf_history'], label=scheme,
+                 color=colors[i], linewidth=2)
     
     ax1.set_xlabel('Generation', fontsize=11)
-    ax1.set_ylabel('Average Best-So-Far (BSF) Fitness', fontsize=11)
-    ax1.set_title('Convergence Curves (Mean ± Std Dev)\nLower is Better', 
-                  fontsize=13, fontweight='bold')
+    ax1.set_ylabel('Average Best-So-Far (BSF)', fontsize=11)
+    ax1.set_title('Avg. BSF vs Generation (All Schemes)', fontsize=13, fontweight='bold')
     ax1.legend(fontsize=9, loc='best')
     ax1.grid(True, alpha=0.3)
     
-    # Plot 2: Box Plot of Final Fitness Values
-    ax2 = axes[0, 1]
-    final_fitness_data = [results['all_final_fitness'] for results in results_dict.values()]
-    bp = ax2.boxplot(final_fitness_data, labels=schemes, patch_artist=True)
+    # Right: Avg ASF for all combinations
+    for i, (scheme, results) in enumerate(results_dict.items()):
+        generations = range(len(results['avg_asf_history']))
+        ax2.plot(generations, results['avg_asf_history'], label=scheme,
+                 color=colors[i], linewidth=2)
     
-    for patch, color in zip(bp['boxes'], colors):
-        patch.set_facecolor(color)
-        patch.set_alpha(0.6)
+    ax2.set_xlabel('Generation', fontsize=11)
+    ax2.set_ylabel('Average Average-Fitness (ASF)', fontsize=11)
+    ax2.set_title('Avg. ASF vs Generation (All Schemes)', fontsize=13, fontweight='bold')
+    ax2.legend(fontsize=9, loc='best')
+    ax2.grid(True, alpha=0.3)
     
-    ax2.set_ylabel('Final Best Fitness', fontsize=11)
-    ax2.set_title('Distribution of Final Solutions\nLower is Better', 
-                  fontsize=13, fontweight='bold')
-    ax2.tick_params(axis='x', rotation=15, labelsize=9)
-    ax2.grid(True, alpha=0.3, axis='y')
-    
-    # Plot 3: Mean Final Fitness Comparison
-    ax3 = axes[1, 0]
-    means = [results['mean_final_fitness'] for results in results_dict.values()]
-    stds = [results['std_final_fitness'] for results in results_dict.values()]
-    x_pos = np.arange(len(schemes))
-    
-    bars = ax3.bar(x_pos, means, yerr=stds, capsize=5, alpha=0.7, color=colors)
-    ax3.set_xticks(x_pos)
-    ax3.set_xticklabels(schemes, rotation=15, ha='right', fontsize=9)
-    ax3.set_ylabel('Mean Final Fitness (± Std Dev)', fontsize=11)
-    ax3.set_title('Mean Performance Comparison\nLower is Better', 
-                  fontsize=13, fontweight='bold')
-    ax3.grid(True, alpha=0.3, axis='y')
-    
-    # Plot 4: Computational Efficiency
-    ax4 = axes[1, 1]
-    runtimes = [results['mean_runtime'] for results in results_dict.values()]
-    
-    bars = ax4.bar(x_pos, runtimes, alpha=0.7, color=colors)
-    ax4.set_xticks(x_pos)
-    ax4.set_xticklabels(schemes, rotation=15, ha='right', fontsize=9)
-    ax4.set_ylabel('Mean Runtime per Run (seconds)', fontsize=11)
-    ax4.set_title('Computational Efficiency', fontsize=13, fontweight='bold')
-    ax4.grid(True, alpha=0.3, axis='y')
-    
-    plt.suptitle('Exam Scheduling: Selection Schemes Comparison (Purdue Spr12 Dataset)\n' +
-                f'Parameters: μ=30, λ=10, Generations=50, K=10 runs per scheme',
-                fontsize=15, fontweight='bold')
+    plt.suptitle('Exam Scheduling: Selection Schemes Comparison (Purdue Spr12)\n'
+                 'Parameters: μ=30, λ=10, Generations=50, K=10 runs',
+                 fontsize=14, fontweight='bold')
     plt.tight_layout()
     
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"\n✓ Comparison plot saved to: {save_path}")
+    # Ensure absolute path in main directory
+    filepath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', save_path))
+    plt.savefig(filepath, dpi=300, bbox_inches='tight')
+    print(f"\nComparison plot saved to: {filepath}")
     
-    plt.show()
+    plt.close()  # Close figure to free memory and avoid blocking
 
 
-def print_detailed_analysis(results_dict):
+def print_summary(results_dict):
     """
-    Print detailed statistical analysis of all selection schemes
+    Print a concise summary of all selection schemes.
     
     Args:
         results_dict: Dictionary with results from different schemes
     """
     print("\n" + "="*80)
-    print(" "*20 + "DETAILED ANALYSIS REPORT")
+    print(" "*20 + "RESULTS SUMMARY")
     print("="*80)
     
     schemes = list(results_dict.keys())
     
     # Find best scheme
-    best_mean_fitness = min(results['mean_final_fitness'] for results in results_dict.values())
-    best_scheme = [name for name, results in results_dict.items() 
-                   if results['mean_final_fitness'] == best_mean_fitness][0]
+    best_mean_fitness = min(results_dict[s]['mean_final_fitness'] for s in schemes)
+    best_scheme = [s for s in schemes if results_dict[s]['mean_final_fitness'] == best_mean_fitness][0]
     
-    print(f"\n🏆 BEST SCHEME (by mean fitness): {best_scheme}")
-    print(f"   Mean Final Fitness: {results_dict[best_scheme]['mean_final_fitness']:.2f}")
-    print(f"   Std Deviation: {results_dict[best_scheme]['std_final_fitness']:.2f}")
-    print(f"   Best Run: {results_dict[best_scheme]['best_final_fitness']:.2f}")
-    print(f"   Worst Run: {results_dict[best_scheme]['worst_final_fitness']:.2f}")
+    print(f"\nBest Scheme (by mean BSF): {best_scheme}")
+    print(f"  Mean Final BSF: {results_dict[best_scheme]['mean_final_fitness']:.2f}")
+    print(f"  Std Dev:        {results_dict[best_scheme]['std_final_fitness']:.2f}")
     
     print("\n" + "-"*80)
-    print(f"{'Selection Scheme':<40} {'Mean':<12} {'Std Dev':<12} {'Best':<12} {'Runtime(s)':<12}")
+    print(f"{'#':<4} {'Selection Scheme':<35} {'Mean BSF':<12} {'Std Dev':<12} {'Best BSF':<12} {'Runtime(s)':<12}")
     print("-"*80)
     
-    # Sort by mean final fitness (lower is better)
-    sorted_schemes = sorted(schemes, 
-                           key=lambda x: results_dict[x]['mean_final_fitness'])
+    sorted_schemes = sorted(schemes, key=lambda x: results_dict[x]['mean_final_fitness'])
     
     for i, scheme in enumerate(sorted_schemes):
-        results = results_dict[scheme]
-        marker = " ⭐" if scheme == best_scheme else ""
-        rank = f"#{i+1}"
-        
-        print(f"{rank:<5} {scheme:<35} "
-              f"{results['mean_final_fitness']:<12.2f} "
-              f"{results['std_final_fitness']:<12.2f} "
-              f"{results['best_final_fitness']:<12.2f} "
-              f"{results['mean_runtime']:<12.2f}{marker}")
+        r = results_dict[scheme]
+        marker = " <-- best" if scheme == best_scheme else ""
+        print(f"{i+1:<4} {scheme:<35} {r['mean_final_fitness']:<12.2f} "
+              f"{r['std_final_fitness']:<12.2f} {r['best_final_fitness']:<12.2f} "
+              f"{r['mean_runtime']:<12.2f}{marker}")
     
     print("-"*80)
-    
-    # Statistical comparisons
-    print("\n PERFORMANCE ANALYSIS:")
-    
-    for i, scheme in enumerate(sorted_schemes):
-        if i == 0:
-            print(f"\n  1. {scheme} (BEST)")
-            print(f"     - Baseline for comparison")
-        else:
-            baseline = results_dict[sorted_schemes[0]]['mean_final_fitness']
-            current = results_dict[scheme]['mean_final_fitness']
-            difference = current - baseline
-            percent_worse = (difference / baseline) * 100
-            
-            print(f"\n  {i+1}. {scheme}")
-            print(f"     - {difference:.2f} worse than best ({percent_worse:.2f}% higher)")
-    
-    # Convergence analysis
-    print("\n CONVERGENCE ANALYSIS:")
-    
-    for scheme in schemes:
-        results = results_dict[scheme]
-        avg_history = results['avg_bsf_history']
-        
-        initial_fitness = avg_history[0]
-        final_fitness = avg_history[-1]
-        improvement = initial_fitness - final_fitness
-        improvement_pct = (improvement / initial_fitness) * 100
-        
-        print(f"\n  {scheme}:")
-        print(f"    Initial Avg Fitness: {initial_fitness:.2f}")
-        print(f"    Final Avg Fitness: {final_fitness:.2f}")
-        print(f"    Total Improvement: {improvement:.2f} ({improvement_pct:.2f}%)")
-    
-    # Reliability analysis
-    print("\n RELIABILITY ANALYSIS (consistency across runs):")
-    
-    reliability_sorted = sorted(schemes, 
-                               key=lambda x: results_dict[x]['std_final_fitness'])
-    
-    for i, scheme in enumerate(reliability_sorted):
-        results = results_dict[scheme]
-        cv = (results['std_final_fitness'] / results['mean_final_fitness']) * 100  # Coefficient of variation
-        
-        marker = "✓ Most Reliable" if i == 0 else ""
-        
-        print(f"\n  {i+1}. {scheme} {marker}")
-        print(f"     Std Dev: {results['std_final_fitness']:.2f}")
-        print(f"     Coefficient of Variation: {cv:.2f}%")
-        print(f"     Range: {results['best_final_fitness']:.2f} - {results['worst_final_fitness']:.2f}")
 
 
 def save_results_to_file(results_dict, filename='exam_scheduling_results.txt'):
@@ -755,7 +894,10 @@ def save_results_to_file(results_dict, filename='exam_scheduling_results.txt'):
         results_dict: Dictionary with results from different schemes
         filename: Output filename
     """
-    with open(filename, 'w') as f:
+    # Ensure absolute path in main directory
+    filepath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', filename))
+    
+    with open(filepath, 'w') as f:
         f.write("="*80 + "\n")
         f.write(" "*15 + "EXAM SCHEDULING PROBLEM - RESULTS REPORT\n")
         f.write(" "*20 + "Purdue University Spring 2012 Dataset\n")
@@ -803,22 +945,41 @@ def save_results_to_file(results_dict, filename='exam_scheduling_results.txt'):
         
         for scheme in results_dict.keys():
             results = results_dict[scheme]
+            k = results['k']
             f.write(f"\n{scheme}\n")
             f.write("-"*80 + "\n")
-            f.write(f"  Mean Final Fitness: {results['mean_final_fitness']:.2f} ± {results['std_final_fitness']:.2f}\n")
-            f.write(f"  Best Final Fitness: {results['best_final_fitness']:.2f}\n")
-            f.write(f"  Worst Final Fitness: {results['worst_final_fitness']:.2f}\n")
+            f.write(f"  Mean Final BSF: {results['mean_final_fitness']:.2f} +/- {results['std_final_fitness']:.2f}\n")
+            f.write(f"  Best Final BSF: {results['best_final_fitness']:.2f}\n")
+            f.write(f"  Worst Final BSF: {results['worst_final_fitness']:.2f}\n")
             f.write(f"  Mean Runtime: {results['mean_runtime']:.2f}s\n")
             f.write(f"  Total Runtime: {results['total_runtime']:.2f}s\n")
             f.write(f"\n  Individual Run Results:\n")
             for i, fitness in enumerate(results['all_final_fitness'], 1):
-                f.write(f"    Run {i:2d}: {fitness:.2f}\n")
+                f.write(f"    Run {i:2d}: BSF = {fitness:.2f}\n")
+            
+            # Generation-by-generation table
+            n_gens = len(results['avg_bsf_history'])
+            f.write(f"\n  Generation Table (BSF and ASF per run):\n")
+            header = f"    {'Gen':<6}"
+            for r in range(1, k + 1):
+                header += f" {'R'+str(r)+' BSF':>10} {'R'+str(r)+' ASF':>10}"
+            header += f" {'Avg BSF':>10} {'Avg ASF':>10}"
+            f.write(header + "\n")
+            f.write("    " + "-" * (len(header) - 4) + "\n")
+            for gen in range(n_gens):
+                row = f"    {gen:<6}"
+                for r in range(k):
+                    row += f" {results['all_bsf_histories'][r][gen]:>10.2f}"
+                    row += f" {results['all_asf_histories'][r][gen]:>10.2f}"
+                row += f" {results['avg_bsf_history'][gen]:>10.2f}"
+                row += f" {results['avg_asf_history'][gen]:>10.2f}"
+                f.write(row + "\n")
         
         f.write("\n" + "="*80 + "\n")
         f.write("END OF REPORT\n")
         f.write("="*80 + "\n")
     
-    print(f"✓ Detailed results saved to: {filename}")
+    print(f"✓ Detailed results saved to: {filepath}")
 
 
 def main():
@@ -836,6 +997,10 @@ def main():
     print(" "*15 + "Purdue University Spring 2012 Dataset")
     print("="*80)
     
+    # Show output directory
+    output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    print(f"\nOutput directory: {output_dir}")
+    
     # 1. Load Real Data from XML
     xml_path = os.path.join(os.path.dirname(__file__), 'pu-exam-spr12.xml')
     
@@ -851,18 +1016,22 @@ def main():
     print(f"  Total Students: {len(students)}")
     print(f"  Total Timeslots: {periods}")
     
-    # 2. Define the three selection scheme combinations (as per assignment requirements)
+    # 2. Define the four selection scheme combinations (as per assignment requirements)
+    # Format: (Parent Selection, Survivor Selection)
+    # Truncation for survivors = mu_plus_lambda (keep best μ from parents+offspring)
     schemes_to_test = [
-        ('fitness_proportional', 'generational'),  # FPS + Truncation (Generational with elitism)
-        ('tournament', 'generational'),            # Binary Tournament + Truncation
-        ('random', 'generational')                 # Random + Generational (baseline)
+        ('fitness_proportional', 'mu_plus_lambda'),  # FPS + Truncation
+        ('tournament', 'mu_plus_lambda'),            # Binary Tournament + Truncation
+        ('truncation', 'mu_plus_lambda'),            # Truncation + Truncation
+        ('random', 'tournament')                     # Random + Random
     ]
     
     # Create readable labels
     scheme_labels = [
-        'FPS + Generational',
-        'Tournament + Generational',
-        'Random + Generational'
+        'FPS + Truncation',
+        'Tournament + Truncation',
+        'Truncation + Truncation',
+        'Random + Random'
     ]
     
     print("\n" + "="*80)
@@ -878,34 +1047,41 @@ def main():
     for (p_scheme, s_scheme), label in zip(schemes_to_test, scheme_labels):
         results[label] = run_k_runs(p_scheme, s_scheme, exams, students, periods, k=10)
     
-    # 4. Generate comprehensive analysis
+    # 4. For each combination: print table + side-by-side BSF/ASF plot
     print("\n" + "="*80)
-    print("GENERATING ANALYSIS AND REPORTS")
+    print("GENERATION-BY-GENERATION TABLES & PLOTS")
     print("="*80)
     
-    # Print detailed analysis to console
-    print_detailed_analysis(results)
+    for label in scheme_labels:
+        # (i) Print the table: Gen | R1 BSF | R1 ASF | ... | Avg BSF | Avg ASF
+        print_generation_table(label, results[label])
+        
+        # Save table as CSV
+        csv_name = label.replace(' ', '_').replace('+', '_') + '_table.csv'
+        save_generation_table_csv(label, results[label], csv_name)
+        
+        # Save table as image
+        table_img_name = label.replace(' ', '_').replace('+', '_') + '_table.png'
+        save_generation_table_image(label, results[label], table_img_name)
+        
+        # (ii) Side-by-side plot of Avg BSF and Avg ASF for this combination
+        plot_name = label.replace(' ', '_').replace('+', '_') + '_plot.png'
+        plot_single_combination(label, results[label], save_path=plot_name)
     
-    # Save results to file
-    save_results_to_file(results, 'exam_scheduling_results.txt')
-    
-    # Generate comparison plots
-    print("\nGenerating comparison plots...")
-    plot_comparison(results, 'exam_scheduling_comparison.png')
+    # 5. Comparison plot: all combinations' Avg BSF and Avg ASF side by side
+    print("\nGenerating combined comparison plot...")
+    plot_all_combinations(results, 'exam_scheduling_comparison.png')
     
     print("\n" + "="*80)
-    print("✅ Q2 COMPLETE!")
+    print("Q2 COMPLETE!")
     print("="*80)
     print("\nGenerated Files:")
-    print("  📊 exam_scheduling_comparison.png - Visual comparison of selection schemes")
-    print("  📄 exam_scheduling_results.txt - Detailed statistical results")
-    print("\nKey Findings:")
-    
-    # Quick summary
-    best_scheme = min(results.keys(), key=lambda x: results[x]['mean_final_fitness'])
-    print(f"  • Best Scheme: {best_scheme}")
-    print(f"  • Best Mean Fitness: {results[best_scheme]['mean_final_fitness']:.2f}")
-    print(f"  • Most Reliable: {min(results.keys(), key=lambda x: results[x]['std_final_fitness'])}")
+    for label in scheme_labels:
+        tag = label.replace(' ', '_').replace('+', '_')
+        print(f"  - {tag}_table.csv (data)")
+        print(f"  - {tag}_table.png (table image)")
+        print(f"  - {tag}_plot.png (Avg BSF & ASF plot)")
+    print(f"  - exam_scheduling_comparison.png (all schemes side by side)")
     
 
 if __name__ == "__main__":
