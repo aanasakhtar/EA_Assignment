@@ -1,0 +1,13 @@
+================================================================================
+               EXAM SCHEDULING PROBLEM - RESULTS REPORT
+                    Purdue University Spring 2012 Dataset
+================================================================================
+
+PROBLEM DESCRIPTION:
+--------------------------------------------------------------------------------
+Task: Schedule exams to timeslots minimizing conflicts and penalties
+Chromosome: Integer array [exam_id] -> timeslot_id
+Fitness: Minimization (lower is better)
+
+ALGORITHM PARAMETERS (Fixed by Assignment):
+--------------------------------------------------------------------------------
