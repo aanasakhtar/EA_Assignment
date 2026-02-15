@@ -512,7 +512,7 @@ def run_k_runs(parent_scheme, survivor_scheme, exams, students, periods, k=10):
     print(f"{'='*70}")
     
     for run in range(k):
-        print(f"  Run {run+1}/{k}...", flush=True)
+        print(f"  Run {run+1}/{k}...", end=' ', flush=True)
         
         start_time = time.time()
         
@@ -533,51 +533,8 @@ def run_k_runs(parent_scheme, survivor_scheme, exams, students, periods, k=10):
             survivor_selection=survivor_scheme
         )
         
-        # Run evolution with progress dots
-        for gen in range(solver.generations):
-            # Manual single generation step
-            if gen == 0:
-                solver.population = solver.initialize_population()
-            
-            fitnesses = [solver.calculate_fitness(ind) for ind in solver.population]
-            
-            best_idx = np.argmin(fitnesses)
-            solver.best_fitness_history.append(fitnesses[best_idx])
-            solver.avg_fitness_history.append(np.mean(fitnesses))
-            
-            if fitnesses[best_idx] < solver.best_fitness:
-                solver.best_fitness = fitnesses[best_idx]
-                solver.best_solution = solver.population[best_idx].copy()
-            
-            # Generate offspring
-            offspring = []
-            while len(offspring) < solver.offspring_size:
-                parent1 = solver.select_parent(solver.population, fitnesses)
-                parent2 = solver.select_parent(solver.population, fitnesses)
-                
-                if np.random.random() < solver.crossover_rate:
-                    o1, o2 = solver.crossover(parent1, parent2)
-                else:
-                    o1, o2 = parent1.copy(), parent2.copy()
-                
-                if np.random.random() < solver.mutation_rate:
-                    o1 = solver.mutate(o1)
-                if np.random.random() < solver.mutation_rate:
-                    o2 = solver.mutate(o2)
-                
-                offspring.append(o1)
-                if len(offspring) < solver.offspring_size:
-                    offspring.append(o2)
-            
-            offspring_fitnesses = [solver.calculate_fitness(ind) for ind in offspring]
-            
-            solver.population = solver.perform_survivor_selection(
-                solver.population, offspring, fitnesses, offspring_fitnesses
-            )
-            
-            # Progress dot every 10 generations
-            if gen % 10 == 9:
-                print(".", end="", flush=True)
+        # Run evolution (uses efficient fitness caching internally)
+        solver.evolve(verbose=False)
         
         runtime = time.time() - start_time
         
@@ -587,7 +544,7 @@ def run_k_runs(parent_scheme, survivor_scheme, exams, students, periods, k=10):
         all_final_fitness.append(solver.best_fitness)
         all_runtimes.append(runtime)
         
-        print(f" BSF={solver.best_fitness:.0f}, {runtime:.1f}s")
+        print(f"BSF={solver.best_fitness:.0f}, {runtime:.1f}s")
     
     # Calculate averages across K runs
     avg_bsf_history = np.mean(all_runs_bsf, axis=0)
