@@ -1,0 +1,32 @@
+EXAM SCHEDULING RESULTS - Conflict-Free Approach
+======================================================================
+
+APPROACH:
+Conflict-free initialization with smart room assignment
+EA optimizes soft constraints only
+Hard constraints maintained throughout evolution
+
+Dataset:
+Exams: 1993
+Periods: 29
+Students: 34239
+
+Algorithm Parameters:
+Population Size: 100
+Generations: 250
+Crossover Rate: 0.8
+Mutation Rate: 0.3
+Elitism Count: 5
+
+Results:
+Best Fitness (Soft Constraints Only): 411945.05
+Initial Best: 531083.91
+Improvement: 22.43%
+
+Constraint Analysis:
+Hard Constraints:
+Direct Conflicts: 154 (Should be 0)
+Soft Constraints:
+Spread Penalty: 83695
+Balance Penalty: 46.75
+Consecutive Exams: 11151

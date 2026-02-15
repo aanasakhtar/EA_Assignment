@@ -1,8 +1,3 @@
-"""
-Travelling Salesman Problem (TSP) Solver using Evolutionary Algorithm
-Solves TSP for Qatar dataset (194 cities)
-"""
-
 import numpy as np
 import sys
 import os
@@ -15,8 +10,6 @@ import re
 
 
 class TSPSolver(EAFramework):
-    """TSP solver using Evolutionary Algorithm"""
-    
     def __init__(self, cities, distance_matrix, **kwargs):
         """
         Initialize TSP solver
@@ -217,8 +210,6 @@ def load_qatar_dataset():
         print(f"Could not download dataset: {e}")
         print("Generating sample Qatar-like dataset...")
         
-        # Generate sample data if download fails
-        np.random.seed(42)
         n_cities = 194
         
         # Generate coordinates in a rectangular region (roughly Qatar shape)
@@ -274,14 +265,14 @@ def main():
     )
     
     print("\nEvolutionary Algorithm Parameters:")
-    print(f"  Population Size: {solver.population_size}")
-    print(f"  Generations: {solver.generations}")
-    print(f"  Crossover Rate: {solver.crossover_rate}")
-    print(f"  Mutation Rate: {solver.mutation_rate}")
-    print(f"  Elitism Count: {solver.elitism_count}")
-    print(f"  Offspring Size: {solver.offspring_size}")
-    print(f"  Parent Selection: {solver.parent_selection}")
-    print(f"  Survivor Selection: {solver.survivor_selection}")
+    print(f"Population Size: {solver.population_size}")
+    print(f"Generations: {solver.generations}")
+    print(f"Crossover Rate: {solver.crossover_rate}")
+    print(f"Mutation Rate: {solver.mutation_rate}")
+    print(f"Elitism Count: {solver.elitism_count}")
+    print(f"Offspring Size: {solver.offspring_size}")
+    print(f"Parent Selection: {solver.parent_selection}")
+    print(f"Survivor Selection: {solver.survivor_selection}")
     
     print("\nStarting evolution...\n")
     
@@ -317,17 +308,17 @@ def main():
         f.write("TSP SOLVER RESULTS - Qatar Dataset\n")
         f.write("="*60 + "\n\n")
         f.write("Algorithm Parameters:\n")
-        f.write(f"  Population Size: {solver.population_size}\n")
-        f.write(f"  Generations: {solver.generations}\n")
-        f.write(f"  Crossover Rate: {solver.crossover_rate}\n")
-        f.write(f"  Mutation Rate: {solver.mutation_rate}\n")
-        f.write(f"  Elitism Count: {solver.elitism_count}\n")
-        f.write(f"  Tournament Size: {solver.tournament_size}\n\n")
+        f.write(f"Population Size: {solver.population_size}\n")
+        f.write(f"Generations: {solver.generations}\n")
+        f.write(f"Crossover Rate: {solver.crossover_rate}\n")
+        f.write(f"Mutation Rate: {solver.mutation_rate}\n")
+        f.write(f"Elitism Count: {solver.elitism_count}\n")
+        f.write(f"Tournament Size: {solver.tournament_size}\n\n")
         f.write("Results:\n")
-        f.write(f"  Best Tour Distance: {stats['best_fitness']:.2f}\n")
-        f.write(f"  Initial Best Distance: {solver.best_fitness_history[0]:.2f}\n")
-        f.write(f"  Improvement: {stats['improvement']:.2f} ({stats['improvement_percent']:.2f}%)\n")
-        f.write(f"  Final Average Distance: {stats['final_avg_fitness']:.2f}\n\n")
+        f.write(f"Best Tour Distance: {stats['best_fitness']:.2f}\n")
+        f.write(f"Initial Best Distance: {solver.best_fitness_history[0]:.2f}\n")
+        f.write(f"Improvement: {stats['improvement']:.2f} ({stats['improvement_percent']:.2f}%)\n")
+        f.write(f"Final Average Distance: {stats['final_avg_fitness']:.2f}\n\n")
         f.write("Best Tour (city indices):\n")
         f.write(str(best_tour.tolist()))
     

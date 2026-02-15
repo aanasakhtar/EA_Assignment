@@ -1,8 +1,3 @@
-"""
-Base Evolutionary Algorithm Framework
-This module provides the core EA implementation structure
-"""
-
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Any
@@ -268,50 +263,27 @@ class EAFramework(ABC):
     def survivor_selection_mu_plus_lambda(self, population, offspring,
                                          parent_fitnesses, offspring_fitnesses):
         """
-        (μ+λ) selection: Best from parents AND offspring
+        (mu+lambda) selection: Best from parents AND offspring
         
         Args:
-            population: Parent population (μ)
-            offspring: Offspring population (λ)
+            population: Parent population (mu)
+            offspring: Offspring population (lambda)
             parent_fitnesses: Fitness values of parents
             offspring_fitnesses: Fitness values of offspring
             
         Returns:
-            New population of size μ
+            New population of size mu
         """
         # Combine parents and offspring
         combined = population + offspring
         combined_fitnesses = list(parent_fitnesses) + list(offspring_fitnesses)
         
-        # Select best μ individuals
+        # Select best mu individuals
         best_indices = np.argsort(combined_fitnesses)[:self.population_size]
         new_population = [combined[i] for i in best_indices]
         
         return new_population
     
-    def survivor_selection_mu_comma_lambda(self, population, offspring,
-                                          parent_fitnesses, offspring_fitnesses):
-        """
-        (μ,λ) selection: Best from offspring ONLY
-        Note: Requires λ ≥ μ (offspring_size >= population_size)
-        
-        Args:
-            population: Parent population (μ) - not used in selection
-            offspring: Offspring population (λ)
-            parent_fitnesses: Fitness values of parents - not used
-            offspring_fitnesses: Fitness values of offspring
-            
-        Returns:
-            New population of size μ from offspring
-        """
-        if len(offspring) < self.population_size:
-            raise ValueError(f"(μ,λ) requires λ ≥ μ. Got λ={len(offspring)}, μ={self.population_size}")
-        
-        # Select best μ individuals from offspring only
-        best_indices = np.argsort(offspring_fitnesses)[:self.population_size]
-        new_population = [offspring[i] for i in best_indices]
-        
-        return new_population
     
     def survivor_selection_tournament(self, population, offspring,
                                      parent_fitnesses, offspring_fitnesses):
@@ -367,10 +339,6 @@ class EAFramework(ABC):
             )
         elif self.survivor_selection == 'mu_plus_lambda':
             return self.survivor_selection_mu_plus_lambda(
-                population, offspring, parent_fitnesses, offspring_fitnesses
-            )
-        elif self.survivor_selection == 'mu_comma_lambda':
-            return self.survivor_selection_mu_comma_lambda(
                 population, offspring, parent_fitnesses, offspring_fitnesses
             )
         elif self.survivor_selection == 'tournament':
